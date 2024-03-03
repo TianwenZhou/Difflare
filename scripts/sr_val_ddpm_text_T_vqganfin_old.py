@@ -342,8 +342,7 @@ def main():
 						img_name = img_list.pop(0)
 						basename = os.path.splitext(os.path.basename(img_name))[0]
 						x_sample = 255. * rearrange(x_samples[i].cpu().numpy(), 'c h w -> h w c')
-						x_sample = x_sample.astype(np.uint8)	
-						Image.fromarray(x_sample.astype(np.uint8)).save(
+						x_sample = x_sample.astype(np.uint8)							Image.fromarray(x_sample.astype(np.uint8)).save(
 							os.path.join(outpath, basename+'.png'))
 
 				toc = time.time()

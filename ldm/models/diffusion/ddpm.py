@@ -1941,10 +1941,10 @@ class LatentDiffusionFlareRemoval(DDPM):
             self.lq, self.gt = self.randn_cropinput(self.lq, self.gt)
 
         self.lq = torch.clamp(self.lq, -1.0, 1.0)
-        # im_gt = im_gt.to(memory_format=torch.contiguous_format).float()
+        im_gt = im_gt.to(memory_format=torch.contiguous_format).float()
         encoded_gt = self.encode_first_stage(im_gt)
         z_gt = self.get_first_stage_encoding(encoded_gt).detach()
-        # lq = lq.to(memory_format=torch.contiguous_format).float()
+        lq = lq.to(memory_format=torch.contiguous_format).float()
         encoded_lq = self.encode_first_stage(lq)
         z_lq = self.get_first_stage_encoding(encoded_lq).detach()
         while len(text_cond) < z_gt.size(0):
