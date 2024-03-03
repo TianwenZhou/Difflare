@@ -1933,26 +1933,28 @@ class LatentDiffusionFlareRemoval(DDPM):
         im_gt = batch['gt'].cuda()
         lq = batch['lq'].cuda()
         self.lq, self.gt = lq, im_gt
+        # if not val and not self.random_size:             
+        #     self._dequeue_and_enqueue()
         self.lq = self.lq.contiguous()  # for the warning: grad and param do not obey the gradient layout contract
-        self.lq = self.lq*2 - 1.0
-        self.gt = self.gt*2 - 1.0
+        # self.lq = self.lq*2 - 1.0
+        # self.gt = self.gt*2 - 1.0
 
         if self.random_size:
             self.lq, self.gt = self.randn_cropinput(self.lq, self.gt)
 
         self.lq = torch.clamp(self.lq, -1.0, 1.0)
-        im_gt = im_gt.to(memory_format=torch.contiguous_format).float()
-        encoded_gt = self.encode_first_stage(im_gt)
+        self.gt = self.gt.to(memory_format=torch.contiguous_format).float()
+        encoded_gt = self.encode_first_stage(self.gt)
         z_gt = self.get_first_stage_encoding(encoded_gt).detach()
-        lq = lq.to(memory_format=torch.contiguous_format).float()
-        encoded_lq = self.encode_first_stage(lq)
+        self.lq = self.lq.to(memory_format=torch.contiguous_format).float()
+        encoded_lq = self.encode_first_stage(self.lq)
         z_lq = self.get_first_stage_encoding(encoded_lq).detach()
         while len(text_cond) < z_gt.size(0):
             text_cond.append(text_cond[-1])
         if len(text_cond) > z_gt.size(0):
             text_cond = text_cond[:z_gt.size(0)]
         assert len(text_cond) == z_gt.size(0)
-        out = [z_gt, text_cond, z_lq, im_gt, lq]
+        out = [z_gt, text_cond, z_lq, self.gt, self.lq]
 
         return out
 

@@ -151,7 +151,7 @@ data:
 
         gt_size: 512
         use_hflip: True
-        use_rot: False
+        use_rot: True
     validation:
       target: basicsr.data.paired_image_dataset.PairedImageDataset
       params:
