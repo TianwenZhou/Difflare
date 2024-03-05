@@ -19,7 +19,7 @@ model:
     scale_factor: 0.18215
     use_ema: False
     # for training only
-    ckpt_path:  /root/autodl-tmp/Difflare/src/stable_diffusion-v2-1_512/v2-1_512-ema-pruned.ckpt
+    ckpt_path:  /home/intern/ztw/ztw/Methods/Difflare/src/stable_diffusion-v2-1_512/v2-1_512-ema-pruned.ckpt
     unfrozen_diff: False
     random_size: False
     time_replace: 1000
@@ -52,7 +52,7 @@ model:
       target: ldm.models.autoencoder.AutoencoderKL
       params:
         # for training only
-        ckpt_path:  /root/autodl-tmp/Difflare/src/stable_diffusion-v2-1_512/v2-1_512-ema-pruned.ckpt
+        ckpt_path: /home/intern/ztw/ztw/Methods/Difflare/src/stable_diffusion-v2-1_512/v2-1_512-ema-pruned.ckpt
         embed_dim: 4
         monitor: val/rec_loss
         ddconfig:
@@ -123,8 +123,8 @@ data:
         scale : 1
         phase : train
         queue_size: 180
-        dataroot_gt: '/root/autodl-tmp/Difflare/data/output_flare/gts'
-        dataroot_lq: '/root/autodl-tmp/Difflare/data/output_flare/merges'
+        dataroot_gt: '/home/intern/ztw/ztw/Methods/Difflare/data/output_flare/gts'
+        dataroot_lq: '/home/intern/ztw/ztw/Methods/Difflare/data/output_flare/merges'
         # face_gt_path: '/mnt/lustre/share/jywang/dataset/FFHQ/1024/'
         # num_face: 10000
         crop_size: 512
@@ -155,8 +155,8 @@ data:
     validation:
       target: basicsr.data.paired_image_dataset.PairedImageDataset
       params:
-        dataroot_gt: '/root/autodl-tmp/Difflare/data/Flare7Kpp/test_data/synthetic/gt'
-        dataroot_lq: '/root/autodl-tmp/Difflare/data/Flare7Kpp/test_data/synthetic/input'
+        dataroot_gt: '/home/intern/ztw/ztw/Methods/Difflare/data/Flare7Kpp/test_data/synthetic/gt'
+        dataroot_lq: '/home/intern/ztw/ztw/Methods/Difflare/data/Flare7Kpp/test_data/synthetic/input'
         crop_size: 512
         scale : 1
         phase : train
@@ -195,8 +195,8 @@ test_data:
     # used to be basicsr.data.realesrgan_dataset.RealESRGANDataset
       target: basicsr.data.paired_image_dataset.PairedImageDataset
       params:
-        dataroot_gt: '/root/autodl-tmp/Difflare/data/Flare7Kpp/test_data/real/gt'
-        dataroot_lq: '/root/autodl-tmp/Difflare/data/Flare7Kpp/test_data/real/input'
+        dataroot_gt: '/home/intern/ztw/ztw/Methods/Difflare/data/Flare7Kpp/test_data/real/gt'
+        dataroot_lq: '/home/intern/ztw/ztw/Methods/Difflare/data/Flare7Kpp/test_data/real/input'
         crop_size: 512
         scale : 1
         phase : train
