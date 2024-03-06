@@ -209,3 +209,15 @@ def parallel_data_prefetch(
         return out
     else:
         return gather_res
+
+def merge(recon_lq, x_sample, x_input):
+    # if recon_lq.shape != x_sample.shape or recon_lq.shape != x_input.shape():
+    #     raise ValueError("The size of the three images should be the same")
+    diff = torch.abs(recon_lq - x_sample)
+
+    binary_mask = diff > 0
+
+    x_sample = binary_mask.float()*x_sample + (1 - binary_mask.float())*x_input
+
+    return x_sample
+

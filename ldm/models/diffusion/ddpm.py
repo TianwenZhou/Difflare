@@ -21,7 +21,7 @@ import torchvision.transforms as transforms
 from matplotlib import pyplot as plt
 import torchvision.transforms.functional as TF
 
-from ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config
+from ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config, merge
 from ldm.modules.ema import LitEma
 from ldm.data.generate_flare import Flare_Image_Loader
 from ldm.modules.distributions.distributions import normal_kl, DiagonalGaussianDistribution
@@ -2895,6 +2895,7 @@ class LatentDiffusionFlareRemoval(DDPM):
             log["inputs"] = lq
             log["reconstruction"] = im_gt
             log["recon_lq"] = self.decode_first_stage(z_lq)
+            recon_lq = self.decode_first_stage(z_lq)
 
         c = self.cond_stage_model(c_lq)
         if self.test_gt:
@@ -2932,6 +2933,7 @@ class LatentDiffusionFlareRemoval(DDPM):
 
                 samples, z_denoise_row = self.sample(cond=c, struct_cond=struct_cond, batch_size=N, timesteps=cur_time_step, return_intermediates=True, time_replace=self.time_replace)
             x_samples = self.decode_first_stage(samples)
+            x_samples = merge(recon_lq, x_samples, lq)
             log["samples"] = x_samples
             if plot_denoise_rows:
                 denoise_grid = self._get_denoise_row_from_list(z_denoise_row)
