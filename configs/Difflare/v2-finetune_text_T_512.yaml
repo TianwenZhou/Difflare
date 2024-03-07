@@ -123,9 +123,8 @@ data:
         phase : train
         queue_size: 180
         dataroot_gt: '/home/intern/ztw/ztw/Methods/Difflare/data/output_flare/gts'
-        dataroot_lq: '/home/intern/ztw/ztw/Methods/Difflare/data/output_flare/merges'
-        # face_gt_path: '/mnt/lustre/share/jywang/dataset/FFHQ/1024/'
-        # num_face: 10000
+        scattering_flare_path: '/home/intern/ztw/ztw/Methods/Difflare/data/Flare7Kpp/Flare7K/Scattering_Flare/Compound_Flare'
+        reflective_flare_path: '/home/intern/ztw/ztw/Methods/Difflare/data/Flare7Kpp/Flare7K/Reflective_Flare'
         crop_size: 512
         io_backend:
           type: disk

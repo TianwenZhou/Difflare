@@ -61,59 +61,7 @@ class RealESRGANDataset(data.Dataset):
                 if len(opt['gt_path']) > 1:
                     for i in range(len(opt['gt_path'])-1):
                         self.paths.extend(sorted([str(x) for x in Path(opt['gt_path'][i+1]).glob('*.'+opt['image_type'])]))
-        if 'imagenet_path' in opt:
-            class_list = os.listdir(opt['imagenet_path'])
-            for class_file in class_list:
-                self.paths.extend(sorted([str(x) for x in Path(os.path.join(opt['imagenet_path'], class_file)).glob('*.'+'JPEG')]))
-        if 'face_gt_path' in opt:
-            if isinstance(opt['face_gt_path'], str):
-                face_list = sorted([str(x) for x in Path(opt['face_gt_path']).glob('*.'+opt['image_type'])])
-                self.paths.extend(face_list[:opt['num_face']])
-            else:
-                face_list = sorted([str(x) for x in Path(opt['face_gt_path'][0]).glob('*.'+opt['image_type'])])
-                self.paths.extend(face_list[:opt['num_face']])
-                if len(opt['face_gt_path']) > 1:
-                    for i in range(len(opt['face_gt_path'])-1):
-                        self.paths.extend(sorted([str(x) for x in Path(opt['face_gt_path'][0]).glob('*.'+opt['image_type'])])[:opt['num_face']])
 
-        # limit number of pictures for test
-        if 'num_pic' in opt:
-            if 'val' or 'test' in opt:
-                random.shuffle(self.paths)
-                self.paths = self.paths[:opt['num_pic']]
-            else:
-                self.paths = self.paths[:opt['num_pic']]
-
-        if 'mul_num' in opt:
-            self.paths = self.paths * opt['mul_num']
-            # print('>>>>>>>>>>>>>>>>>>>>>')
-            # print(self.paths)
-
-        # blur settings for the first degradation
-        self.blur_kernel_size = opt['blur_kernel_size']
-        self.kernel_list = opt['kernel_list']
-        self.kernel_prob = opt['kernel_prob']  # a list for each kernel probability
-        self.blur_sigma = opt['blur_sigma']
-        self.betag_range = opt['betag_range']  # betag used in generalized Gaussian blur kernels
-        self.betap_range = opt['betap_range']  # betap used in plateau blur kernels
-        self.sinc_prob = opt['sinc_prob']  # the probability for sinc filters
-
-        # blur settings for the second degradation
-        self.blur_kernel_size2 = opt['blur_kernel_size2']
-        self.kernel_list2 = opt['kernel_list2']
-        self.kernel_prob2 = opt['kernel_prob2']
-        self.blur_sigma2 = opt['blur_sigma2']
-        self.betag_range2 = opt['betag_range2']
-        self.betap_range2 = opt['betap_range2']
-        self.sinc_prob2 = opt['sinc_prob2']
-
-        # a final sinc filter
-        self.final_sinc_prob = opt['final_sinc_prob']
-
-        self.kernel_range = [2 * v + 1 for v in range(3, 11)]  # kernel size ranges from 7 to 21
-        # TODO: kernel range is now hard-coded, should be in the configure file
-        self.pulse_tensor = torch.zeros(21, 21).float()  # convolving with pulse tensor brings no blurry effect
-        self.pulse_tensor[10, 10] = 1
 
     def __getitem__(self, index):
         if self.file_client is None:

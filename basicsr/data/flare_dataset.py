@@ -29,204 +29,191 @@ class FlareCorruptedDataset(data.Dataset):
     """
 
     def __init__(self, opt):
-        super(FFHQDegradationDataset, self).__init__()
+        super(FlareCorruptedDataset, self).__init__()
         self.opt = opt
         # file client (io backend)
         self.file_client = None
         self.io_backend_opt = opt['io_backend']
         if 'image_type' not in opt:
             opt['image_type'] = 'png'
+        # support multiple type of data: file path and meta data, remove support of lmdb
+        self.paths = []
+        if 'meta_info' in opt:
+            with open(self.opt['meta_info']) as fin:
+                    paths = [line.strip().split(' ')[0] for line in fin]
+                    self.paths = [v for v in paths]
+            if 'meta_num' in opt:
+                self.paths = sorted(self.paths)[:opt['meta_num']]
+        if 'gt_path' in opt:
+            if isinstance(opt['gt_path'], str):
+                self.paths.extend(sorted([str(x) for x in Path(opt['gt_path']).glob('*.'+opt['image_type'])]))
+            else:
+                self.paths.extend(sorted([str(x) for x in Path(opt['gt_path'][0]).glob('*.'+opt['image_type'])]))
+                if len(opt['gt_path']) > 1:
+                    for i in range(len(opt['gt_path'])-1):
+                        self.paths.extend(sorted([str(x) for x in Path(opt['gt_path'][i+1]).glob('*.'+opt['image_type'])]))
+        
+        # limit number of pictures for test
+        if 'num_pic' in opt:
+            if 'val' or 'test' in opt:
+                random.shuffle(self.paths)
+                self.paths = self.paths[:opt['num_pic']]
+            else:
+                self.paths = self.paths[:opt['num_pic']]
 
-        self.gt_folder = opt['dataroot_gt']
-        self.mean = opt['mean']
-        self.std = opt['std']
-        self.out_size = opt['out_size']
+        if 'mul_num' in opt:
+            self.paths = self.paths * opt['mul_num']
+            # print('>>>>>>>>>>>>>>>>>>>>>')
+            # print(self.paths)
 
-        self.crop_components = opt.get('crop_components', False)  # facial components
-        self.eye_enlarge_ratio = opt.get('eye_enlarge_ratio', 1)  # whether enlarge eye regions
-
-        if self.crop_components:
-            # load component list from a pre-process pth files
-            self.components_list = torch.load(opt.get('component_path'))
-
-        # file client (lmdb io backend)
-        if self.io_backend_opt['type'] == 'lmdb':
-            self.io_backend_opt['db_paths'] = self.gt_folder
-            if not self.gt_folder.endswith('.lmdb'):
-                raise ValueError(f"'dataroot_gt' should end with '.lmdb', but received {self.gt_folder}")
-            with open(osp.join(self.gt_folder, 'meta_info.txt')) as fin:
-                self.paths = [line.split('.')[0] for line in fin]
-        else:
-            # disk backend: scan file list from a folder
-            self.paths = self.paths = sorted([str(x) for x in Path(self.gt_folder).glob('*.'+opt['image_type'])])
-
-        # degradation configurations
+        # blur settings for the first degradation
         self.blur_kernel_size = opt['blur_kernel_size']
         self.kernel_list = opt['kernel_list']
-        self.kernel_prob = opt['kernel_prob']
+        self.kernel_prob = opt['kernel_prob']  # a list for each kernel probability
         self.blur_sigma = opt['blur_sigma']
-        self.downsample_range = opt['downsample_range']
-        self.noise_range = opt['noise_range']
-        self.jpeg_range = opt['jpeg_range']
+        self.betag_range = opt['betag_range']  # betag used in generalized Gaussian blur kernels
+        self.betap_range = opt['betap_range']  # betap used in plateau blur kernels
+        self.sinc_prob = opt['sinc_prob']  # the probability for sinc filters
 
-        # color jitter
-        self.color_jitter_prob = opt.get('color_jitter_prob')
-        self.color_jitter_pt_prob = opt.get('color_jitter_pt_prob')
-        self.color_jitter_shift = opt.get('color_jitter_shift', 20)
-        # to gray
-        self.gray_prob = opt.get('gray_prob')
+        # blur settings for the second degradation
+        self.blur_kernel_size2 = opt['blur_kernel_size2']
+        self.kernel_list2 = opt['kernel_list2']
+        self.kernel_prob2 = opt['kernel_prob2']
+        self.blur_sigma2 = opt['blur_sigma2']
+        self.betag_range2 = opt['betag_range2']
+        self.betap_range2 = opt['betap_range2']
+        self.sinc_prob2 = opt['sinc_prob2']
 
-        logger = get_root_logger()
-        logger.info(f'Blur: blur_kernel_size {self.blur_kernel_size}, sigma: [{", ".join(map(str, self.blur_sigma))}]')
-        logger.info(f'Downsample: downsample_range [{", ".join(map(str, self.downsample_range))}]')
-        logger.info(f'Noise: [{", ".join(map(str, self.noise_range))}]')
-        logger.info(f'JPEG compression: [{", ".join(map(str, self.jpeg_range))}]')
+        # a final sinc filter
+        self.final_sinc_prob = opt['final_sinc_prob']
 
-        if self.color_jitter_prob is not None:
-            logger.info(f'Use random color jitter. Prob: {self.color_jitter_prob}, shift: {self.color_jitter_shift}')
-        if self.gray_prob is not None:
-            logger.info(f'Use random gray. Prob: {self.gray_prob}')
-        if self.color_jitter_shift is not None:
-            self.color_jitter_shift /= 255.
-
-    @staticmethod
-    def color_jitter(img, shift):
-        """jitter color: randomly jitter the RGB values, in numpy formats"""
-        jitter_val = np.random.uniform(-shift, shift, 3).astype(np.float32)
-        img = img + jitter_val
-        img = np.clip(img, 0, 1)
-        return img
-
-    @staticmethod
-    def color_jitter_pt(img, brightness, contrast, saturation, hue):
-        """jitter color: randomly jitter the brightness, contrast, saturation, and hue, in torch Tensor formats"""
-        fn_idx = torch.randperm(4)
-        for fn_id in fn_idx:
-            if fn_id == 0 and brightness is not None:
-                brightness_factor = torch.tensor(1.0).uniform_(brightness[0], brightness[1]).item()
-                img = adjust_brightness(img, brightness_factor)
-
-            if fn_id == 1 and contrast is not None:
-                contrast_factor = torch.tensor(1.0).uniform_(contrast[0], contrast[1]).item()
-                img = adjust_contrast(img, contrast_factor)
-
-            if fn_id == 2 and saturation is not None:
-                saturation_factor = torch.tensor(1.0).uniform_(saturation[0], saturation[1]).item()
-                img = adjust_saturation(img, saturation_factor)
-
-            if fn_id == 3 and hue is not None:
-                hue_factor = torch.tensor(1.0).uniform_(hue[0], hue[1]).item()
-                img = adjust_hue(img, hue_factor)
-        return img
-
-    def get_component_coordinates(self, index, status):
-        """Get facial component (left_eye, right_eye, mouth) coordinates from a pre-loaded pth file"""
-        components_bbox = self.components_list[f'{index:08d}']
-        if status[0]:  # hflip
-            # exchange right and left eye
-            tmp = components_bbox['left_eye']
-            components_bbox['left_eye'] = components_bbox['right_eye']
-            components_bbox['right_eye'] = tmp
-            # modify the width coordinate
-            components_bbox['left_eye'][0] = self.out_size - components_bbox['left_eye'][0]
-            components_bbox['right_eye'][0] = self.out_size - components_bbox['right_eye'][0]
-            components_bbox['mouth'][0] = self.out_size - components_bbox['mouth'][0]
-
-        # get coordinates
-        locations = []
-        for part in ['left_eye', 'right_eye', 'mouth']:
-            mean = components_bbox[part][0:2]
-            half_len = components_bbox[part][2]
-            if 'eye' in part:
-                half_len *= self.eye_enlarge_ratio
-            loc = np.hstack((mean - half_len + 1, mean + half_len))
-            loc = torch.from_numpy(loc).float()
-            locations.append(loc)
-        return locations
+        self.kernel_range = [2 * v + 1 for v in range(3, 11)]  # kernel size ranges from 7 to 21
+        # TODO: kernel range is now hard-coded, should be in the configure file
+        self.pulse_tensor = torch.zeros(21, 21).float()  # convolving with pulse tensor brings no blurry effect
+        self.pulse_tensor[10, 10] = 1
 
     def __getitem__(self, index):
         if self.file_client is None:
             self.file_client = FileClient(self.io_backend_opt.pop('type'), **self.io_backend_opt)
 
-        # load gt image
+        # -------------------------------- Load gt images -------------------------------- #
         # Shape: (h, w, c); channel order: BGR; image range: [0, 1], float32.
         gt_path = self.paths[index]
-        img_bytes = self.file_client.get(gt_path)
+        # avoid errors caused by high latency in reading files
+        retry = 3
+        while retry > 0:
+            try:
+                img_bytes = self.file_client.get(gt_path, 'gt')
+            except (IOError, OSError) as e:
+                # logger = get_root_logger()
+                # logger.warn(f'File client error: {e}, remaining retry times: {retry - 1}')
+                # change another file to read
+                index = random.randint(0, self.__len__()-1)
+                gt_path = self.paths[index]
+                time.sleep(1)  # sleep 1s for occasional server congestion
+            else:
+                break
+            finally:
+                retry -= 1
         img_gt = imfrombytes(img_bytes, float32=True)
+        # filter the dataset and remove images with too low quality
+        img_size = os.path.getsize(gt_path)
+        img_size = img_size/1024
 
-        # random horizontal flip
-        img_gt, status = augment(img_gt, hflip=self.opt['use_hflip'], rotation=False, return_status=True)
-        h, w, _ = img_gt.shape
+        while img_gt.shape[0] * img_gt.shape[1] < 384*384 or img_size<100:
+            index = random.randint(0, self.__len__()-1)
+            gt_path = self.paths[index]
 
-        # get facial component coordinates
-        if self.crop_components:
-            locations = self.get_component_coordinates(index, status)
-            loc_left_eye, loc_right_eye, loc_mouth = locations
+            time.sleep(0.1)  # sleep 1s for occasional server congestion
+            img_bytes = self.file_client.get(gt_path, 'gt')
+            img_gt = imfrombytes(img_bytes, float32=True)
+            img_size = os.path.getsize(gt_path)
+            img_size = img_size/1024
 
-        # ------------------------ generate lq image ------------------------ #
-        # blur
-        kernel = degradations.random_mixed_kernels(
-            self.kernel_list,
-            self.kernel_prob,
-            self.blur_kernel_size,
-            self.blur_sigma,
-            self.blur_sigma, [-math.pi, math.pi],
-            noise_range=None)
-        img_lq = cv2.filter2D(img_gt, -1, kernel)
-        # downsample
-        scale = np.random.uniform(self.downsample_range[0], self.downsample_range[1])
-        img_lq = cv2.resize(img_lq, (int(w // scale), int(h // scale)), interpolation=cv2.INTER_LINEAR)
-        # noise
-        if self.noise_range is not None:
-            img_lq = degradations.random_add_gaussian_noise(img_lq, self.noise_range)
-        # jpeg compression
-        if self.jpeg_range is not None:
-            img_lq = degradations.random_add_jpg_compression(img_lq, self.jpeg_range)
+        # -------------------- Do augmentation for training: flip, rotation -------------------- #
+        img_gt = augment(img_gt, self.opt['use_hflip'], self.opt['use_rot'])
 
-        # resize to original size
-        img_lq = cv2.resize(img_lq, (w, h), interpolation=cv2.INTER_LINEAR)
+        # crop or pad to 400
+        # TODO: 400 is hard-coded. You may change it accordingly
+        h, w = img_gt.shape[0:2]
+        crop_pad_size = self.crop_size
+        # pad
+        if h < crop_pad_size or w < crop_pad_size:
+            pad_h = max(0, crop_pad_size - h)
+            pad_w = max(0, crop_pad_size - w)
+            img_gt = cv2.copyMakeBorder(img_gt, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT_101)
+        # crop
+        if img_gt.shape[0] > crop_pad_size or img_gt.shape[1] > crop_pad_size:
+            h, w = img_gt.shape[0:2]
+            # randomly choose top and left coordinates
+            top = random.randint(0, h - crop_pad_size)
+            left = random.randint(0, w - crop_pad_size)
+            # top = (h - crop_pad_size) // 2 -1
+            # left = (w - crop_pad_size) // 2 -1
+            img_gt = img_gt[top:top + crop_pad_size, left:left + crop_pad_size, ...]
 
-        # random color jitter (only for lq)
-        if self.color_jitter_prob is not None and (np.random.uniform() < self.color_jitter_prob):
-            img_lq = self.color_jitter(img_lq, self.color_jitter_shift)
-        # random to gray (only for lq)
-        if self.gray_prob and np.random.uniform() < self.gray_prob:
-            img_lq = cv2.cvtColor(img_lq, cv2.COLOR_BGR2GRAY)
-            img_lq = np.tile(img_lq[:, :, None], [1, 1, 3])
-            if self.opt.get('gt_gray'):  # whether convert GT to gray images
-                img_gt = cv2.cvtColor(img_gt, cv2.COLOR_BGR2GRAY)
-                img_gt = np.tile(img_gt[:, :, None], [1, 1, 3])  # repeat the color channels
+        # ------------------------ Generate kernels (used in the first degradation) ------------------------ #
+        kernel_size = random.choice(self.kernel_range)
+        if np.random.uniform() < self.opt['sinc_prob']:
+            # this sinc filter setting is for kernels ranging from [7, 21]
+            if kernel_size < 13:
+                omega_c = np.random.uniform(np.pi / 3, np.pi)
+            else:
+                omega_c = np.random.uniform(np.pi / 5, np.pi)
+            kernel = circular_lowpass_kernel(omega_c, kernel_size, pad_to=False)
+        else:
+            kernel = random_mixed_kernels(
+                self.kernel_list,
+                self.kernel_prob,
+                kernel_size,
+                self.blur_sigma,
+                self.blur_sigma, [-math.pi, math.pi],
+                self.betag_range,
+                self.betap_range,
+                noise_range=None)
+        # pad kernel
+        pad_size = (21 - kernel_size) // 2
+        kernel = np.pad(kernel, ((pad_size, pad_size), (pad_size, pad_size)))
+
+        # ------------------------ Generate kernels (used in the second degradation) ------------------------ #
+        kernel_size = random.choice(self.kernel_range)
+        if np.random.uniform() < self.opt['sinc_prob2']:
+            if kernel_size < 13:
+                omega_c = np.random.uniform(np.pi / 3, np.pi)
+            else:
+                omega_c = np.random.uniform(np.pi / 5, np.pi)
+            kernel2 = circular_lowpass_kernel(omega_c, kernel_size, pad_to=False)
+        else:
+            kernel2 = random_mixed_kernels(
+                self.kernel_list2,
+                self.kernel_prob2,
+                kernel_size,
+                self.blur_sigma2,
+                self.blur_sigma2, [-math.pi, math.pi],
+                self.betag_range2,
+                self.betap_range2,
+                noise_range=None)
+
+        # pad kernel
+        pad_size = (21 - kernel_size) // 2
+        kernel2 = np.pad(kernel2, ((pad_size, pad_size), (pad_size, pad_size)))
+
+        # ------------------------------------- the final sinc kernel ------------------------------------- #
+        if np.random.uniform() < self.opt['final_sinc_prob']:
+            kernel_size = random.choice(self.kernel_range)
+            omega_c = np.random.uniform(np.pi / 3, np.pi)
+            sinc_kernel = circular_lowpass_kernel(omega_c, kernel_size, pad_to=21)
+            sinc_kernel = torch.FloatTensor(sinc_kernel)
+        else:
+            sinc_kernel = self.pulse_tensor
 
         # BGR to RGB, HWC to CHW, numpy to tensor
-        img_gt, img_lq = img2tensor([img_gt, img_lq], bgr2rgb=True, float32=True)
+        img_gt = img2tensor([img_gt], bgr2rgb=True, float32=True)[0]
+        kernel = torch.FloatTensor(kernel)
+        kernel2 = torch.FloatTensor(kernel2)
 
-        # random color jitter (pytorch version) (only for lq)
-        if self.color_jitter_pt_prob is not None and (np.random.uniform() < self.color_jitter_pt_prob):
-            brightness = self.opt.get('brightness', (0.5, 1.5))
-            contrast = self.opt.get('contrast', (0.5, 1.5))
-            saturation = self.opt.get('saturation', (0, 1.5))
-            hue = self.opt.get('hue', (-0.1, 0.1))
-            img_lq = self.color_jitter_pt(img_lq, brightness, contrast, saturation, hue)
-
-        # round and clip
-        img_lq = torch.clamp((img_lq * 255.0).round(), 0, 255) / 255.
-
-        # normalize
-        normalize(img_gt, self.mean, self.std, inplace=True)
-        normalize(img_lq, self.mean, self.std, inplace=True)
-
-        if self.crop_components:
-            return_dict = {
-                'lq': img_lq,
-                'gt': img_gt,
-                'gt_path': gt_path,
-                'loc_left_eye': loc_left_eye,
-                'loc_right_eye': loc_right_eye,
-                'loc_mouth': loc_mouth
-            }
-            return return_dict
-        else:
-            return {'lq': img_lq, 'gt': img_gt, 'gt_path': gt_path}
+        return_d = {'gt': img_gt, 'kernel1': kernel, 'kernel2': kernel2, 'sinc_kernel': sinc_kernel, 'gt_path': gt_path}
+        return return_d
 
     def __len__(self):
         return len(self.paths)
