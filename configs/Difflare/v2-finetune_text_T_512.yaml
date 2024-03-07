@@ -117,8 +117,7 @@ data:
     num_workers: 6
     wrap: false
     train:
-    # used to be target: basicsr.data.realesrgan_dataset.RealESRGANDataset 
-      target: basicsr.data.paired_image_dataset.PairedImageDataset
+      target: basicsr.data.flare_dataset.FlareCorruptedDataset
       params:
         scale : 1
         phase : train

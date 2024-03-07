@@ -15,9 +15,9 @@ from torchvision.transforms.functional import (adjust_brightness, adjust_contras
                                                normalize)
 
 @DATASET_REGISTRY.register()
-class FFHQDegradationDataset(data.Dataset):
-    """FFHQ dataset for GFPGAN.
-    It reads high resolution images, and then generate low-quality (LQ) images on-the-fly.
+class FlareCorruptedDataset(data.Dataset):
+    """FLare corrupted dataset generation
+    It reads high resolution images from Flickr24K, and then generate flare corrupted images on-the-fly.
     Args:
         opt (dict): Config for train datasets. It contains the following keys:
             dataroot_gt (str): Data root path for gt.
