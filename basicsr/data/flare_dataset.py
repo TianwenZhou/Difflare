@@ -1,26 +1,31 @@
 import cv2
+import os
 import math
 import numpy as np
 import os.path as osp
 import torch
 import torch.utils.data as data
+import torchvision.utils as vutils
 import random
+from PIL import Image
 from basicsr.data import degradations as degradations
 from basicsr.data.data_util import paths_from_folder
+from basicsr.utils.img_util import tensor2img
 from basicsr.data.transforms import augment
 from basicsr.utils import FileClient, get_root_logger, imfrombytes, img2tensor
 from basicsr.utils.registry import DATASET_REGISTRY
 from pathlib import Path
+from basicsr.data.flare_dataloader import generate_flare
 from torchvision.transforms.functional import (adjust_brightness, adjust_contrast, adjust_hue, adjust_saturation,
                                                normalize)
 
 @DATASET_REGISTRY.register()
 class FlareCorruptedDataset(data.Dataset):
-    """FLare corrupted dataset generation
-    It reads high resolution images from Flickr24K, and then generate flare corrupted images on-the-fly.
+    """
     Args:
         opt (dict): Config for train datasets. It contains the following keys:
-            dataroot_gt (str): Data root path for gt.
+            gt_path (str): Data root path for gt.
+            dataroot_depth(str): Data root path for depth
             io_backend (dict): IO backend type and other kwarg.
             mean (list | tuple): Image mean.
             std (list | tuple): Image std.
@@ -33,187 +38,116 @@ class FlareCorruptedDataset(data.Dataset):
         self.opt = opt
         # file client (io backend)
         self.file_client = None
-        self.io_backend_opt = opt['io_backend']
+        
         if 'image_type' not in opt:
             opt['image_type'] = 'png'
         # support multiple type of data: file path and meta data, remove support of lmdb
-        self.paths = []
-        if 'meta_info' in opt:
-            with open(self.opt['meta_info']) as fin:
-                    paths = [line.strip().split(' ')[0] for line in fin]
-                    self.paths = [v for v in paths]
-            if 'meta_num' in opt:
-                self.paths = sorted(self.paths)[:opt['meta_num']]
-        if 'gt_path' in opt:
-            if isinstance(opt['gt_path'], str):
-                self.paths.extend(sorted([str(x) for x in Path(opt['gt_path']).glob('*.'+opt['image_type'])]))
+        self.gt_paths = []
+        self.scattering_flare_paths = []
+        self.reflective_flare_paths = []
+        self.light_source_paths = []
+        self.io_backend_opt = opt['io_backend']
+
+
+       
+        if 'gt_root' in opt:
+            if isinstance(opt['gt_root'], str):
+                self.gt_paths.extend(sorted([str(x) for x in Path(opt['gt_root']).glob('*.'+'jpg')]))
             else:
-                self.paths.extend(sorted([str(x) for x in Path(opt['gt_path'][0]).glob('*.'+opt['image_type'])]))
-                if len(opt['gt_path']) > 1:
-                    for i in range(len(opt['gt_path'])-1):
-                        self.paths.extend(sorted([str(x) for x in Path(opt['gt_path'][i+1]).glob('*.'+opt['image_type'])]))
-        
+                self.gt_paths.extend(sorted([str(x) for x in Path(opt['gt_root'][0]).glob('*.'+'jpg')]))
+                if len(opt['gt_root']) > 1:
+                    for i in range(len(opt['gt_root'])-1):
+                        self.gt_paths.extend(sorted([str(x) for x in Path(opt['gt_root'][i+1]).glob('*.'+'jpg')]))
+        if 'scattering_flare_path' in opt:
+            if isinstance(opt['scattering_flare_path'], str):
+                self.scattering_flare_paths.extend(sorted([str(x) for x in Path(opt['scattering_flare_path']).glob('*.'+opt['image_type'])]))
+            else:
+                self.scattering_flare_paths.extend(sorted([str(x) for x in Path(opt['scattering_flare_path'][0]).glob('*.'+opt['image_type'])]))
+                if len(opt['scattering_flare_path']) > 1:
+                    for i in range(len(opt['scattering_flare_path'])-1):
+                        self.scattering_flare_paths.extend(sorted([str(x) for x in Path(opt['scattering_flare_path'][i+1]).glob('*.'+opt['image_type'])]))
+        if 'reflective_flare_path' in opt:
+            if isinstance(opt['reflective_flare_path'], str):
+                self.reflective_flare_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path']).glob('*.'+opt['image_type'])]))
+            else:
+                self.reflective_flare_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path'][0]).glob('*.'+opt['image_type'])]))
+                if len(opt['reflective_flare_path']) > 1:
+                    for i in range(len(opt['reflective_flare_path'])-1):
+                        self.reflective_flare_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path'][i+1]).glob('*.'+opt['image_type'])]))
+        if 'light_source_path' in opt:
+            if isinstance(opt['light_source_path'], str):
+                self.light_source_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path']).glob('*.'+opt['image_type'])]))
+            else:
+                self.light_source_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path'][0]).glob('*.'+opt['image_type'])]))
+                if len(opt['light_source_path']) > 1:
+                    for i in range(len(opt['light_source_path'])-1):
+                        self.light_source_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path'][i+1]).glob('*.'+opt['image_type'])]))
         # limit number of pictures for test
-        if 'num_pic' in opt:
-            if 'val' or 'test' in opt:
-                random.shuffle(self.paths)
-                self.paths = self.paths[:opt['num_pic']]
-            else:
-                self.paths = self.paths[:opt['num_pic']]
-
-        if 'mul_num' in opt:
-            self.paths = self.paths * opt['mul_num']
-            # print('>>>>>>>>>>>>>>>>>>>>>')
-            # print(self.paths)
-
-        # blur settings for the first degradation
-        self.blur_kernel_size = opt['blur_kernel_size']
-        self.kernel_list = opt['kernel_list']
-        self.kernel_prob = opt['kernel_prob']  # a list for each kernel probability
-        self.blur_sigma = opt['blur_sigma']
-        self.betag_range = opt['betag_range']  # betag used in generalized Gaussian blur kernels
-        self.betap_range = opt['betap_range']  # betap used in plateau blur kernels
-        self.sinc_prob = opt['sinc_prob']  # the probability for sinc filters
-
-        # blur settings for the second degradation
-        self.blur_kernel_size2 = opt['blur_kernel_size2']
-        self.kernel_list2 = opt['kernel_list2']
-        self.kernel_prob2 = opt['kernel_prob2']
-        self.blur_sigma2 = opt['blur_sigma2']
-        self.betag_range2 = opt['betag_range2']
-        self.betap_range2 = opt['betap_range2']
-        self.sinc_prob2 = opt['sinc_prob2']
-
-        # a final sinc filter
-        self.final_sinc_prob = opt['final_sinc_prob']
-
-        self.kernel_range = [2 * v + 1 for v in range(3, 11)]  # kernel size ranges from 7 to 21
-        # TODO: kernel range is now hard-coded, should be in the configure file
-        self.pulse_tensor = torch.zeros(21, 21).float()  # convolving with pulse tensor brings no blurry effect
-        self.pulse_tensor[10, 10] = 1
+       
 
     def __getitem__(self, index):
         if self.file_client is None:
             self.file_client = FileClient(self.io_backend_opt.pop('type'), **self.io_backend_opt)
 
-        # -------------------------------- Load gt images -------------------------------- #
+        # -------------------------------- Load gt and depth images -------------------------------- #
         # Shape: (h, w, c); channel order: BGR; image range: [0, 1], float32.
-        gt_path = self.paths[index]
+        gt_path = self.gt_paths[index]
+        scattering_index = random.randint(0,len(self.scattering_flare_paths) - 1)
+        print(scattering_index)
+        reflective_index = random.randint(0,len(self.reflective_flare_paths) - 1)
+        scattering_flare_path = self.scattering_flare_paths[scattering_index]
+        reflective_flare_path = self.reflective_flare_paths[reflective_index]
+        light_source_path = self.light_source_paths[scattering_index]
         # avoid errors caused by high latency in reading files
         retry = 3
         while retry > 0:
             try:
                 img_bytes = self.file_client.get(gt_path, 'gt')
+                scattering_flare_bytes = self.file_client.get(scattering_flare_path)
+                reflective_flare_bytes = self.file_client.get(reflective_flare_path)
+                light_source_bytes = self.file_client.get(light_source_path)
             except (IOError, OSError) as e:
                 # logger = get_root_logger()
                 # logger.warn(f'File client error: {e}, remaining retry times: {retry - 1}')
                 # change another file to read
                 index = random.randint(0, self.__len__()-1)
-                gt_path = self.paths[index]
+                gt_path = self.gt_paths[index]
+                scattering_flare_path = self.scattering_flare_paths[scattering_index]
+                reflective_flare_path = self.reflective_flare_paths[reflective_index]
+                light_source_path = self.light_source_paths[scattering_index]
+                light_source_bytes = self.file_client.get(light_source_path)
                 time.sleep(1)  # sleep 1s for occasional server congestion
             else:
                 break
             finally:
                 retry -= 1
+       
+
         img_gt = imfrombytes(img_bytes, float32=True)
-        # filter the dataset and remove images with too low quality
-        img_size = os.path.getsize(gt_path)
-        img_size = img_size/1024
+        scattering_flare = imfrombytes(scattering_flare_bytes, float32=True)
+        reflective_flare = imfrombytes(reflective_flare_bytes, float32=True)
+        light_source = imfrombytes(light_source_bytes, float32=True)
 
-        while img_gt.shape[0] * img_gt.shape[1] < 384*384 or img_size<100:
-            index = random.randint(0, self.__len__()-1)
-            gt_path = self.paths[index]
 
-            time.sleep(0.1)  # sleep 1s for occasional server congestion
-            img_bytes = self.file_client.get(gt_path, 'gt')
-            img_gt = imfrombytes(img_bytes, float32=True)
-            img_size = os.path.getsize(gt_path)
-            img_size = img_size/1024
+        img_with_light_source, img_lq = generate_flare(img_gt, scattering_flare, reflective_flare, light_source)
 
-        # -------------------- Do augmentation for training: flip, rotation -------------------- #
-        img_gt = augment(img_gt, self.opt['use_hflip'], self.opt['use_rot'])
-
-        # crop or pad to 400
-        # TODO: 400 is hard-coded. You may change it accordingly
-        h, w = img_gt.shape[0:2]
+        h, w, c = img_gt.shape[0:3]
+        
         crop_pad_size = self.crop_size
         # pad
-        if h < crop_pad_size or w < crop_pad_size:
-            pad_h = max(0, crop_pad_size - h)
-            pad_w = max(0, crop_pad_size - w)
-            img_gt = cv2.copyMakeBorder(img_gt, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT_101)
-        # crop
-        if img_gt.shape[0] > crop_pad_size or img_gt.shape[1] > crop_pad_size:
-            h, w = img_gt.shape[0:2]
-            # randomly choose top and left coordinates
-            top = random.randint(0, h - crop_pad_size)
-            left = random.randint(0, w - crop_pad_size)
-            # top = (h - crop_pad_size) // 2 -1
-            # left = (w - crop_pad_size) // 2 -1
-            img_gt = img_gt[top:top + crop_pad_size, left:left + crop_pad_size, ...]
-
-        # ------------------------ Generate kernels (used in the first degradation) ------------------------ #
-        kernel_size = random.choice(self.kernel_range)
-        if np.random.uniform() < self.opt['sinc_prob']:
-            # this sinc filter setting is for kernels ranging from [7, 21]
-            if kernel_size < 13:
-                omega_c = np.random.uniform(np.pi / 3, np.pi)
-            else:
-                omega_c = np.random.uniform(np.pi / 5, np.pi)
-            kernel = circular_lowpass_kernel(omega_c, kernel_size, pad_to=False)
-        else:
-            kernel = random_mixed_kernels(
-                self.kernel_list,
-                self.kernel_prob,
-                kernel_size,
-                self.blur_sigma,
-                self.blur_sigma, [-math.pi, math.pi],
-                self.betag_range,
-                self.betap_range,
-                noise_range=None)
-        # pad kernel
-        pad_size = (21 - kernel_size) // 2
-        kernel = np.pad(kernel, ((pad_size, pad_size), (pad_size, pad_size)))
-
-        # ------------------------ Generate kernels (used in the second degradation) ------------------------ #
-        kernel_size = random.choice(self.kernel_range)
-        if np.random.uniform() < self.opt['sinc_prob2']:
-            if kernel_size < 13:
-                omega_c = np.random.uniform(np.pi / 3, np.pi)
-            else:
-                omega_c = np.random.uniform(np.pi / 5, np.pi)
-            kernel2 = circular_lowpass_kernel(omega_c, kernel_size, pad_to=False)
-        else:
-            kernel2 = random_mixed_kernels(
-                self.kernel_list2,
-                self.kernel_prob2,
-                kernel_size,
-                self.blur_sigma2,
-                self.blur_sigma2, [-math.pi, math.pi],
-                self.betag_range2,
-                self.betap_range2,
-                noise_range=None)
-
-        # pad kernel
-        pad_size = (21 - kernel_size) // 2
-        kernel2 = np.pad(kernel2, ((pad_size, pad_size), (pad_size, pad_size)))
-
-        # ------------------------------------- the final sinc kernel ------------------------------------- #
-        if np.random.uniform() < self.opt['final_sinc_prob']:
-            kernel_size = random.choice(self.kernel_range)
-            omega_c = np.random.uniform(np.pi / 3, np.pi)
-            sinc_kernel = circular_lowpass_kernel(omega_c, kernel_size, pad_to=21)
-            sinc_kernel = torch.FloatTensor(sinc_kernel)
-        else:
-            sinc_kernel = self.pulse_tensor
-
+        if h != crop_pad_size or w != crop_pad_size:
+            img_lq = cv2.resize(img_lq, (crop_pad_size,crop_pad_size))
+            img_with_light_source = cv2.resize(img_with_light_source, (crop_pad_size,crop_pad_size))
+           
+        img_lq, img_with_light_source = augment([img_lq, img_with_light_source], self.opt['use_hflip'], self.opt['use_rot'])
         # BGR to RGB, HWC to CHW, numpy to tensor
-        img_gt = img2tensor([img_gt], bgr2rgb=True, float32=True)[0]
-        kernel = torch.FloatTensor(kernel)
-        kernel2 = torch.FloatTensor(kernel2)
+        img_lq = img2tensor([img_lq], bgr2rgb=True, float32=True)[0]
+        img_with_light_source = img2tensor([img_with_light_source], bgr2rgb=True, float32=True)[0]
+        
 
-        return_d = {'gt': img_gt, 'kernel1': kernel, 'kernel2': kernel2, 'sinc_kernel': sinc_kernel, 'gt_path': gt_path}
+
+        return_d = {'gt': img_with_light_source, 'flare_corrupted_img': img_lq}
         return return_d
 
     def __len__(self):
-        return len(self.paths)
+        return len(self.gt_paths)

@@ -23,7 +23,7 @@ import torchvision.transforms.functional as TF
 
 from ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config, merge
 from ldm.modules.ema import LitEma
-from ldm.data.generate_flare import Flare_Image_Loader
+# from ldm.data.generate_flare import Flare_Image_Loader
 from ldm.modules.distributions.distributions import normal_kl, DiagonalGaussianDistribution
 from ldm.models.autoencoder import VQModelInterface, IdentityFirstStage, AutoencoderKL
 from ldm.modules.diffusionmodules.util import make_beta_schedule, extract_into_tensor, noise_like
