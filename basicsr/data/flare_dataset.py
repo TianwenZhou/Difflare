@@ -12,7 +12,7 @@ from basicsr.data import degradations as degradations
 from basicsr.data.data_util import paths_from_folder
 from basicsr.utils.img_util import tensor2img
 from basicsr.data.transforms import augment
-from basicsr.utils import FileClient, get_root_logger, imfrombytes, img2tensor
+from basicsr.utils import FileClient, get_root_logger, imfrombytes, img2tensor, tensor2img
 from basicsr.utils.registry import DATASET_REGISTRY
 from pathlib import Path
 from basicsr.data.flare_dataloader import generate_flare
@@ -38,7 +38,7 @@ class FlareCorruptedDataset(data.Dataset):
         self.opt = opt
         # file client (io backend)
         self.file_client = None
-        
+        self.crop_size = opt['crop_size'] 
         if 'image_type' not in opt:
             opt['image_type'] = 'png'
         # support multiple type of data: file path and meta data, remove support of lmdb
@@ -76,12 +76,12 @@ class FlareCorruptedDataset(data.Dataset):
                         self.reflective_flare_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path'][i+1]).glob('*.'+opt['image_type'])]))
         if 'light_source_path' in opt:
             if isinstance(opt['light_source_path'], str):
-                self.light_source_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path']).glob('*.'+opt['image_type'])]))
+                self.light_source_paths.extend(sorted([str(x) for x in Path(opt['light_source_path']).glob('*.'+opt['image_type'])]))
             else:
-                self.light_source_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path'][0]).glob('*.'+opt['image_type'])]))
+                self.light_source_paths.extend(sorted([str(x) for x in Path(opt['light_source_path'][0]).glob('*.'+opt['image_type'])]))
                 if len(opt['light_source_path']) > 1:
                     for i in range(len(opt['light_source_path'])-1):
-                        self.light_source_paths.extend(sorted([str(x) for x in Path(opt['reflective_flare_path'][i+1]).glob('*.'+opt['image_type'])]))
+                        self.light_source_paths.extend(sorted([str(x) for x in Path(opt['light_source_path'][i+1]).glob('*.'+opt['image_type'])]))
         # limit number of pictures for test
        
 
@@ -93,7 +93,7 @@ class FlareCorruptedDataset(data.Dataset):
         # Shape: (h, w, c); channel order: BGR; image range: [0, 1], float32.
         gt_path = self.gt_paths[index]
         scattering_index = random.randint(0,len(self.scattering_flare_paths) - 1)
-        print(scattering_index)
+        #print(scattering_index)
         reflective_index = random.randint(0,len(self.reflective_flare_paths) - 1)
         scattering_flare_path = self.scattering_flare_paths[scattering_index]
         reflective_flare_path = self.reflective_flare_paths[reflective_index]
@@ -134,19 +134,21 @@ class FlareCorruptedDataset(data.Dataset):
         h, w, c = img_gt.shape[0:3]
         
         crop_pad_size = self.crop_size
-        # pad
-        if h != crop_pad_size or w != crop_pad_size:
-            img_lq = cv2.resize(img_lq, (crop_pad_size,crop_pad_size))
-            img_with_light_source = cv2.resize(img_with_light_source, (crop_pad_size,crop_pad_size))
-           
-        img_lq, img_with_light_source = augment([img_lq, img_with_light_source], self.opt['use_hflip'], self.opt['use_rot'])
+        # # pad
+        # if h != crop_pad_size or w != crop_pad_size:
+        #     img_lq = cv2.resize(img_lq, (crop_pad_size,crop_pad_size))
+        #     img_with_light_source = cv2.resize(img_with_light_source, (crop_pad_size,crop_pad_size))
+        # img_lq, img_with_light_source = tensor2img([img_lq, img_with_light_source], rgb2bgr=True)
+        # img_lq, img_with_light_source = augment([img_lq, img_with_light_source], self.opt['use_hflip'], self.opt['use_rot'])
         # BGR to RGB, HWC to CHW, numpy to tensor
-        img_lq = img2tensor([img_lq], bgr2rgb=True, float32=True)[0]
-        img_with_light_source = img2tensor([img_with_light_source], bgr2rgb=True, float32=True)[0]
+        #img_lq = img2tensor([img_lq], bgr2rgb=True, float32=True)[0]
+        # img_lq = torch.clamp(img_lq,min=0,max=1)
+        #img_with_light_source = img2tensor([img_with_light_source], bgr2rgb=True, float32=True)[0]
+        # img_with_light_source = torch.clamp(img_with_light_source,min=0,max=1)
         
 
 
-        return_d = {'gt': img_with_light_source, 'flare_corrupted_img': img_lq}
+        return_d = {'gt': img_with_light_source, 'lq': img_lq}
         return return_d
 
     def __len__(self):

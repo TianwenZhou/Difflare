@@ -19,7 +19,7 @@ model:
     scale_factor: 0.18215
     use_ema: False
     # for training only
-    ckpt_path:  /home/intern/ztw/Methods/LatentDehazing/src/stable_diffusion-v2-1_512/v2-1_512-ema-pruned.ckpt
+    ckpt_path:  /root/autodl-tmp/Model/v2-1_512-ema-pruned.ckpt
     unfrozen_diff: False
     random_size: False
     time_replace: 1000
@@ -52,7 +52,7 @@ model:
       target: ldm.models.autoencoder.AutoencoderKL
       params:
         # for training only
-        ckpt_path: /home/intern/ztw/Methods/LatentDehazing/src/stable_diffusion-v2-1_512/v2-1_512-ema-pruned.ckpt
+        ckpt_path: /root/autodl-tmp/Model/v2-1_512-ema-pruned.ckpt
         embed_dim: 4
         monitor: val/rec_loss
         ddconfig:
@@ -122,10 +122,10 @@ data:
         scale : 1
         phase : train
         queue_size: 180
-        gt_root: '/home/intern/ztw/Methods/Difflare/data/Flickr24K'
-        scattering_flare_path: '/home/intern/ztw/Methods/Difflare/data/Flare7Kpp/Flare7K/Scattering_Flare/Compound_Flare'
-        reflective_flare_path: '/home/intern/ztw/Methods/Difflare/data/Flare7Kpp/Flare7K/Reflective_Flare'
-        light_source_path: '/home/intern/ztw/Methods/Difflare/data/Flare7Kpp/Flare7K/Scattering_Flare/Light_Source'
+        gt_root: '/root/autodl-tmp/Data/Flickr24K'
+        scattering_flare_path: '/root/autodl-tmp/Data/Flare7Kpp/Flare7K/Scattering_Flare/Compound_Flare'
+        reflective_flare_path: '/root/autodl-tmp/Data/Flare7Kpp/Flare7K/Reflective_Flare'
+        light_source_path: '/root/autodl-tmp/Data/Flare7Kpp/Flare7K/Scattering_Flare/Light_Source'
         crop_size: 512
         io_backend:
           type: disk
@@ -154,8 +154,8 @@ data:
     validation:
       target: basicsr.data.paired_image_dataset.PairedImageDataset
       params:
-        dataroot_gt: '/home/intern/ztw/Methods/Difflare/data/Flare7Kpp/test_data/synthetic/gt'
-        dataroot_lq: '/home/intern/ztw/Methods/Difflare/data/Flare7Kpp/test_data/synthetic/input'
+        dataroot_gt: '/root/autodl-tmp/Data/Flare7Kpp/test_data/synthetic/gt'
+        dataroot_lq: '/root/autodl-tmp/Data/Flare7Kpp/test_data/synthetic/input'
         crop_size: 512
         scale : 1
         phase : train
@@ -227,16 +227,16 @@ test_data:
 lightning:
   modelcheckpoint:
     params:
-      every_n_train_steps: 100
+      every_n_train_steps: 1000
   callbacks:
     image_logger:
       target: main.ImageLogger
       params:
-        batch_frequency: 100
+        batch_frequency: 1000
         max_images: 1
         increase_log_steps: False
 
   trainer:
     benchmark: True
     max_steps: 800000
-    accumulate_grad_batches: 4
+    accumulate_grad_batches: 24
