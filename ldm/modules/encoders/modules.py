@@ -146,7 +146,7 @@ class FrozenOpenCLIPEmbedder(AbstractEncoder):
         "last",
         "penultimate"
     ]
-    def __init__(self, arch="ViT-H-14", version="src/open_clip/open_clip_pytorch_model.bin", device="cuda", max_length=77,
+    def __init__(self, arch="ViT-H-14", version="/root/autodl-tmp/Model/open_clip_pytorch_model.bin", device="cuda", max_length=77,
                  freeze=True, layer="last"):
         super().__init__()
         assert layer in self.LAYERS
@@ -200,7 +200,7 @@ class FrozenOpenCLIPEmbedder(AbstractEncoder):
 
 class FrozenCLIPEmbedder(AbstractEncoder):
     """Uses the CLIP transformer encoder for text (from Hugging Face)"""
-    def __init__(self, version="src/open_clip", device="cuda", max_length=77):
+    def __init__(self, version="/root/autodl-tmp/Model/open_clip_pytorch_model.bin", device="cuda", max_length=77):
         super().__init__()
         self.tokenizer = CLIPTokenizer.from_pretrained(version)
         self.transformer = CLIPTextModel.from_pretrained(version)
@@ -227,7 +227,7 @@ class FrozenCLIPEmbedder(AbstractEncoder):
 
 class FinetuningCLIPEmbedder(AbstractEncoder):
     """Uses the CLIP transformer encoder for text (from Hugging Face)"""
-    def __init__(self, version="src/open_clip", device="cuda", max_length=77):
+    def __init__(self, version="openai/clip-vit-large-patch14", device="cuda", max_length=77):
         super().__init__()
         setattr(transformers.models.clip.modeling_clip,"CLIPTextTransformer", CLIPTextTransformer_M)
         self.tokenizer = CLIPTokenizer.from_pretrained(version)
@@ -257,7 +257,7 @@ class FrozenCLIPTextEmbedder(nn.Module):
     """
     Uses the CLIP transformer encoder for text.
     """
-    def __init__(self, version='ViT-L/14', device="cuda", max_length=77, n_repeat=1, normalize=True):
+    def __init__(self, version='/root/autodl-tmp/Model/open_clip_pytorch_model.bin', device="cuda", max_length=77, n_repeat=1, normalize=True):
         super().__init__()
         self.model, _ = clip.load(version, jit=False, device="cpu")
         self.device = device

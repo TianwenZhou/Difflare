@@ -138,12 +138,12 @@ class FlareCorruptedDataset(data.Dataset):
         # if h != crop_pad_size or w != crop_pad_size:
         #     img_lq = cv2.resize(img_lq, (crop_pad_size,crop_pad_size))
         #     img_with_light_source = cv2.resize(img_with_light_source, (crop_pad_size,crop_pad_size))
-        # img_lq, img_with_light_source = tensor2img([img_lq, img_with_light_source], rgb2bgr=True)
+        img_lq, img_with_light_source = tensor2img([img_lq, img_with_light_source], rgb2bgr=True)
         # img_lq, img_with_light_source = augment([img_lq, img_with_light_source], self.opt['use_hflip'], self.opt['use_rot'])
         # BGR to RGB, HWC to CHW, numpy to tensor
-        #img_lq = img2tensor([img_lq], bgr2rgb=True, float32=True)[0]
+        img_lq = (img2tensor([img_lq], bgr2rgb=False, float32=False)[0])/255.0
         # img_lq = torch.clamp(img_lq,min=0,max=1)
-        #img_with_light_source = img2tensor([img_with_light_source], bgr2rgb=True, float32=True)[0]
+        img_with_light_source = (img2tensor([img_with_light_source], bgr2rgb=False, float32=False)[0])/255.0
         # img_with_light_source = torch.clamp(img_with_light_source,min=0,max=1)
         
 

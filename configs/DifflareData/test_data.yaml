@@ -1,7 +1,7 @@
 sf: 4
 model:
   base_learning_rate: 2.0e-06
-  target: ldm.models.diffusion.ddpm.LatentDiffusionSRTextWT
+  target: ldm.models.diffusion.ddpm.LatentDiffusionFlareRemoval
   params:
     # parameterization: "v"
     linear_start: 0.00085
@@ -50,7 +50,7 @@ model:
     first_stage_config:
       target: ldm.models.autoencoder.AutoencoderKL
       params:
-        ckpt_path: /root/autodl-tmp/StableSR/src/stable_diffusion-v2-1_512/v2-1_512-ema-pruned.ckpt
+        ckpt_path: /root/autodl-tmp/Method/Difflare/logs/2024-04-13T22-13-05_v2-finetune_text_T_512/checkpoints/epoch=000023.ckpt
         embed_dim: 4
         monitor: val/rec_loss
         ddconfig:
@@ -130,38 +130,21 @@ data:
     num_workers: 6
     wrap: false
     train:
-      target: basicsr.data.realesrgan_dataset.RealESRGANDataset
+      target: basicsr.data.flare_dataset.FlareCorruptedDataset
       params:
+        scale : 1
+        phase : train
         queue_size: 180
-        gt_path: '/root/autodl-tmp/StableSR/data/DIV2K_valid_HR'
-        face_gt_path: '/mnt/lustre/jywang/dataset/FFHQ/512_ffhq/512/'
-        # gt_path: /mnt/lustre/jywang/dataset/ImageSR/DIV2K/DIV2K_train_HR/
-        num_face: 2000
+        gt_root: '/root/autodl-tmp/Data/Flickr24K'
+        scattering_flare_path: '/root/autodl-tmp/Data/Flare7Kpp/Flare7K/Scattering_Flare/Compound_Flare'
+        reflective_flare_path: '/root/autodl-tmp/Data/Flare7Kpp/Flare7K/Reflective_Flare'
+        light_source_path: '/root/autodl-tmp/Data/Flare7Kpp/Flare7K/Scattering_Flare/Light_Source'
         crop_size: 512
         io_backend:
           type: disk
-
-        blur_kernel_size: 21
-        kernel_list: ['iso', 'aniso', 'generalized_iso', 'generalized_aniso', 'plateau_iso', 'plateau_aniso']
-        kernel_prob: [0.45, 0.25, 0.12, 0.03, 0.12, 0.03]
-        sinc_prob: 0.1
-        blur_sigma: [0.2, 1.5]
-        betag_range: [0.5, 2.0]
-        betap_range: [1, 1.5]
-
-        blur_kernel_size2: 11
-        kernel_list2: ['iso', 'aniso', 'generalized_iso', 'generalized_aniso', 'plateau_iso', 'plateau_aniso']
-        kernel_prob2: [0.45, 0.25, 0.12, 0.03, 0.12, 0.03]
-        sinc_prob2: 0.1
-        blur_sigma2: [0.2, 1.0]
-        betag_range2: [0.5, 2.0]
-        betap_range2: [1, 1.5]
-
-        final_sinc_prob: 0.8
-
         gt_size: 512
         use_hflip: True
-        use_rot: False
+        use_rot: True
     validation:
       target: basicsr.data.realesrgan_dataset.RealESRGANDataset
       params:
@@ -199,37 +182,23 @@ test_data:
     num_workers: 6
     wrap: false
     test:
-      target: basicsr.data.realesrgan_dataset.RealESRGANDataset
+      target: basicsr.data.flare_dataset.FlareCorruptedDataset
       params:
-        gt_path: ['/root/autodl-tmp/StableSR/data/DIV2K_valid_HR']
-        face_gt_path: '/mnt/lustre/share/jywang/dataset/FFHQ/512_ffhq/512/'
-        num_face: 2000
+        scale : 1
+        phase : train
+        queue_size: 180
+        gt_root: '/root/autodl-tmp/Data/Flickr24K'
+        scattering_flare_path: '/root/autodl-tmp/Data/Flare7Kpp/Flare7K/Scattering_Flare/Compound_Flare'
+        reflective_flare_path: '/root/autodl-tmp/Data/Flare7Kpp/Flare7K/Reflective_Flare'
+        light_source_path: '/root/autodl-tmp/Data/Flare7Kpp/Flare7K/Scattering_Flare/Light_Source'
         crop_size: 512
-        mul_num: 10
         io_backend:
           type: disk
-
-        blur_kernel_size: 21
-        kernel_list: ['iso', 'aniso', 'generalized_iso', 'generalized_aniso', 'plateau_iso', 'plateau_aniso']
-        kernel_prob: [0.45, 0.25, 0.12, 0.03, 0.12, 0.03]
-        sinc_prob: 0.1
-        blur_sigma: [0.2, 1.5]
-        betag_range: [0.5, 2.0]
-        betap_range: [1, 1.5]
-
-        blur_kernel_size2: 11
-        kernel_list2: ['iso', 'aniso', 'generalized_iso', 'generalized_aniso', 'plateau_iso', 'plateau_aniso']
-        kernel_prob2: [0.45, 0.25, 0.12, 0.03, 0.12, 0.03]
-        sinc_prob2: 0.1
-        blur_sigma2: [0.2, 1.0]
-        betag_range2: [0.5, 2.0]
-        betap_range2: [1, 1.5]
-
-        final_sinc_prob: 0.8
-
         gt_size: 512
         use_hflip: True
-        use_rot: False
+        use_rot: True
+
+
 
 lightning:
   modelcheckpoint:

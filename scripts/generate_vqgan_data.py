@@ -26,6 +26,7 @@ import copy
 
 from basicsr.utils import DiffJPEG
 from basicsr.data.realesrgan_dataset import RealESRGANDataset
+from basicsr.data.flare_dataset import FlareCorruptedDataset
 from torch.utils.data import random_split, DataLoader, Dataset, Subset
 
 def calc_mean_std(feat, eps=1e-5):
@@ -330,7 +331,7 @@ def main():
     base_i = opt.base_i
 
     # data
-    dataset = RealESRGANDataset(config.test_data.params.test.params)
+    dataset = FlareCorruptedDataset(config.test_data.params.test.params)
     test_dataloader = DataLoader(
         dataset,
         batch_size=config.test_data.params.batch_size,
@@ -385,7 +386,7 @@ def main():
                         # total_num += 1
                         continue
                     else:
-                        init_latent, text_init, latent_gt, init_image, gt, gt_recon = model.get_input(samples, return_first_stage_outputs=True)
+                        latent_gt, text_init, init_latent, gt, init_image = model.get_input(samples, return_first_stage_outputs=True)
                         size = init_image.size(0)
                         text_init = ['']*size
                         semantic_c = model.cond_stage_model(text_init)
