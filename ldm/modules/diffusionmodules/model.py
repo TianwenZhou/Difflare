@@ -213,7 +213,7 @@ class AttnBlock(nn.Module):
                                         padding=0)
 
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         h_ = x
         h_ = self.norm(h_)
         q = self.q(h_)
@@ -227,6 +227,18 @@ class AttnBlock(nn.Module):
         k = k.reshape(b,c,h*w) # b,c,hw
         w_ = torch.bmm(q,k)     # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
         w_ = w_ * (int(c)**(-0.5))
+        if mask is not None:
+            height = mask.shape[0]
+            width = mask.shape[1]
+            #mask = mask.view(1, height, width)
+            mask = mask.repeat(1, int(h*w/width), int(h*w/width))
+            # print(mask.shape[0])
+            # print(mask.shape[1])
+            # print(mask.shape[2])
+            # print(w_.size())
+            # mask = torch.clamp(mask, min=0, max=1.0)
+            mask = mask.float()
+            w_ = w_.masked_fill(mask == 0, -1e9)
         w_ = torch.nn.functional.softmax(w_, dim=2)
 
         # attend to values
@@ -234,7 +246,6 @@ class AttnBlock(nn.Module):
         w_ = w_.permute(0,2,1)   # b,hw,hw (first hw of k, second of q)
         h_ = torch.bmm(v,w_)     # b, c,hw (hw of q) h_[b,c,j] = sum_i v[b,c,i] w_[b,i,j]
         h_ = h_.reshape(b,c,h,w)
-
         h_ = self.proj_out(h_)
 
         return x+h_
@@ -531,7 +542,7 @@ class Encoder(nn.Module):
                                         stride=1,
                                         padding=1)
 
-    def forward(self, x, return_fea=False):
+    def forward(self, x, mask=None, return_fea=False):
         # timestep embedding
         temb = None
 
@@ -542,7 +553,7 @@ class Encoder(nn.Module):
             for i_block in range(self.num_res_blocks): # resblocks : 2
                 h = self.down[i_level].block[i_block](hs[-1], temb)
                 if len(self.down[i_level].attn) > 0:
-                    h = self.down[i_level].attn[i_block](h)
+                    h = self.down[i_level].attn[i_block](h, mask)
                 hs.append(h)
             if return_fea:
                 if i_level==1 or i_level==2:
@@ -553,7 +564,7 @@ class Encoder(nn.Module):
         # middle
         h = hs[-1]
         h = self.mid.block_1(h, temb)
-        h = self.mid.attn_1(h)
+        h = self.mid.attn_1(h, mask)
         h = self.mid.block_2(h, temb)
 
         # end
@@ -757,7 +768,7 @@ class Decoder_Mix(nn.Module):
                                         stride=1,
                                         padding=1)
 
-    def forward(self, z, enc_fea):
+    def forward(self, z, enc_fea, mask=None):
         #assert z.shape[1:] == self.z_shape[1:]
         self.last_z_shape = z.shape
 
@@ -769,7 +780,7 @@ class Decoder_Mix(nn.Module):
 
         # middle
         h = self.mid.block_1(h, temb)
-        h = self.mid.attn_1(h)
+        h = self.mid.attn_1(h, mask)
         h = self.mid.block_2(h, temb)
 
         # upsampling
@@ -777,7 +788,7 @@ class Decoder_Mix(nn.Module):
             for i_block in range(self.num_res_blocks+1): # num_res_blocks+1= 3
                 h = self.up[i_level].block[i_block](h, temb)
                 if len(self.up[i_level].attn) > 0:
-                    h = self.up[i_level].attn[i_block](h)
+                    h = self.up[i_level].attn[i_block](h, mask)
 
             if i_level != self.num_resolutions-1 and i_level != 0:
                 # i_level = 2, 1

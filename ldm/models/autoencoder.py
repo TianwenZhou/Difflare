@@ -1,7 +1,7 @@
 import torch
 import pytorch_lightning as pl
 import torch.nn.functional as F
-from contextlib import contextmanager
+from contextlib import contextmanager 
 
 from src.taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 
@@ -488,6 +488,8 @@ class AutoencoderKLResi(pl.LightningModule):
         self.decoder = Decoder_Mix(**ddconfig)
         self.decoder.fusion_w = fusion_w
         self.loss = instantiate_from_config(lossconfig)
+        self.linear_mask = torch.nn.Linear(ddconfig["resolution"], ddconfig["resolution"])
+        self.sigmoid_mask = torch.nn.Sigmoid()
         self.quant_conv = torch.nn.Conv2d(2*ddconfig["z_channels"], 2*embed_dim, 1)
         self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
         self.embed_dim = embed_dim
@@ -570,8 +572,8 @@ class AutoencoderKLResi(pl.LightningModule):
             print(f"Unexpected Keys: {unexpected}")
         return missing
 
-    def encode(self, x):
-        h, enc_fea = self.encoder(x, return_fea=True)
+    def encode(self, x, mask=None):
+        h, enc_fea = self.encoder(x, mask, return_fea=True)
         moments = self.quant_conv(h)
         posterior = DiagonalGaussianDistribution(moments)
         # posterior = h
@@ -583,15 +585,31 @@ class AutoencoderKLResi(pl.LightningModule):
         posterior = DiagonalGaussianDistribution(moments)
         return posterior, moments
 
-    def decode(self, z, enc_fea):
+    def decode(self, z, enc_fea, mask=None):
         z = self.post_quant_conv(z)
-        dec = self.decoder(z, enc_fea)
+        dec = self.decoder(z, enc_fea, mask)
         return dec
 
-    def forward(self, input, latent, sample_posterior=True):
-        posterior, enc_fea_lq = self.encode(input)
-        dec = self.decode(latent, enc_fea_lq)
-        return dec, posterior
+    def forward(self, input, latent, mask=None, sample_posterior=True):
+        #generate mask
+        
+        mask = self.RGB2YCbCr(input)
+        mask = mask[0][0]
+        mask = self.linear_mask(mask)
+        mask = self.sigmoid_mask(mask)
+        device = mask.device
+        mask = torch.where(mask >= 0.7, torch.tensor(1).to(device), torch.tensor(0).to(device))
+
+        posterior, enc_fea_lq = self.encode(input, mask)
+        dec = self.decode(latent, enc_fea_lq, mask)
+        height = mask.shape[0]
+        width = mask.shape[1]
+        #mask = mask.view(1, height, width)
+        mask = mask.repeat(1, int(8), int(8))
+            
+        # mask = torch.clamp(mask, min=0, max=1.0)
+        mask = mask.float()
+        return dec, posterior, mask
 
     @torch.no_grad()
     def _dequeue_and_enqueue(self):
@@ -836,7 +854,8 @@ class AutoencoderKLResi(pl.LightningModule):
             inputs, gts, latents, _ = self.get_input_synthesis(batch, val=False)
         else:
             inputs, gts, latents, _ = self.get_input(batch)
-        reconstructions, posterior = self(inputs, latents)
+        reconstructions, posterior, _ = self(inputs, latents)
+
 
         if optimizer_idx == 0:
             # train encoder+decoder+logvar
@@ -858,7 +877,7 @@ class AutoencoderKLResi(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         inputs, gts, latents, _ = self.get_input(batch)
 
-        reconstructions, posterior = self(inputs, latents)
+        reconstructions, posterior, _ = self(inputs, latents)
         aeloss, log_dict_ae = self.loss(gts, reconstructions, posterior, 0, self.global_step,
                                         last_layer=self.get_last_layer(), split="val")
 
@@ -895,7 +914,8 @@ class AutoencoderKLResi(pl.LightningModule):
         latents = latents.to(self.device)
         samples = samples.to(self.device)
         if not only_inputs:
-            xrec, posterior = self(x, latents)
+            
+            xrec, posterior, mask = self(x, latents)
             if x.shape[1] > 3:
                 # colorize with random projection
                 assert xrec.shape[1] > 3
@@ -905,7 +925,7 @@ class AutoencoderKLResi(pl.LightningModule):
                 xrec = self.to_rgb(xrec)
             # log["samples"] = self.decode(torch.randn_like(posterior.sample()))
             log["reconstructions"] = xrec
-        log["inputs"] = x
+        log["inputs"] = mask
         log["gts"] = gts
         log["samples"] = samples
         return log
@@ -917,3 +937,22 @@ class AutoencoderKLResi(pl.LightningModule):
         x = F.conv2d(x, weight=self.colorize)
         x = 2.*(x-x.min())/(x.max()-x.min()) - 1.
         return x
+
+    def RGB2YCbCr(self, img):
+        img = img*255.0
+        r,g,b = torch.split(img,1,dim=1)
+        y = torch.zeros_like(r)
+        cb = torch.zeros_like(r)
+        cr = torch.zeros_like(r)
+        
+        y = 0.257*r+0.504*g+0.098*b+16
+        y = y/255.0
+        
+        cb = -0.148*r-0.291*g+0.439*b+128
+        cb = cb/255.0
+        
+        cr = 0.439*r-0.368*g-0.071*b+128
+        cr = cr/255.0
+        
+        img = torch.cat([y,cb,cr],dim=1)
+        return img
