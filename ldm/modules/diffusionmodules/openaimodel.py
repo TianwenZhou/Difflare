@@ -496,15 +496,15 @@ class AttentionBlock(nn.Module):
 
         self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         return checkpoint(self._forward, (x,), self.parameters(), True)   # TODO: check checkpoint usage, is True # TODO: fix the .half call!!!
         #return pt_checkpoint(self._forward, x)  # pytorch
 
-    def _forward(self, x):
+    def _forward(self, x, mask=None):
         b, c, *spatial = x.shape
         x = x.reshape(b, c, -1)
         qkv = self.qkv(self.norm(x))
-        h = self.attention(qkv)
+        h = self.attention(qkv, mask=mask)
         h = self.proj_out(h)
         return (x + h).reshape(b, c, *spatial)
 
@@ -538,7 +538,7 @@ class QKVAttentionLegacy(nn.Module):
         self.n_heads = n_heads
         self.attention_op: Optional[Any] = None
 
-    def forward(self, qkv):
+    def forward(self, qkv, mask=None):
         """
         Apply QKV attention.
         :param qkv: an [N x (H * 3 * C) x T] tensor of Qs, Ks, and Vs.
@@ -565,6 +565,9 @@ class QKVAttentionLegacy(nn.Module):
             weight = th.einsum(
                 "bct,bcs->bts", q * scale, k * scale
             )  # More stable with f16 than dividing afterwards
+            # add mask
+            if mask is not None:
+                weight = weight.masked_fill(mask == 0, -1e9)
             weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
             a = th.einsum("bts,bcs->bct", weight, v)
             a = a.reshape(bs, -1, length)
