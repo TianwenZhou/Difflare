@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from einops import rearrange
-
+import torch.nn.functional as F
 from ldm.util import instantiate_from_config
 from ldm.modules.attention import LinearAttention
 
@@ -228,16 +228,17 @@ class AttnBlock(nn.Module):
         w_ = torch.bmm(q,k)     # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
         w_ = w_ * (int(c)**(-0.5))
         if mask is not None:
+            mask = mask.float()
             height = mask.shape[0]
             width = mask.shape[1]
-            #mask = mask.view(1, height, width)
-            mask = mask.repeat(1, int(h*w/width), int(h*w/width))
-            # print(mask.shape[0])
-            # print(mask.shape[1])
-            # print(mask.shape[2])
-            # print(w_.size())
-            # mask = torch.clamp(mask, min=0, max=1.0)
-            mask = mask.float()
+            mask = mask.reshape(1, height, width)
+            mask = mask.unsqueeze(0)
+            mask = F.interpolate(mask, size=(h,w))
+            mask = mask.squeeze(0)
+            height = mask.shape[0]
+            width = mask.shape[1]
+            mask = mask.view(b, h*w, 1)
+            mask = mask.repeat(1, 1, h*w)
             w_ = w_.masked_fill(mask == 0, -1e9)
         w_ = torch.nn.functional.softmax(w_, dim=2)
 
@@ -545,7 +546,6 @@ class Encoder(nn.Module):
     def forward(self, x, mask=None, return_fea=False):
         # timestep embedding
         temb = None
-
         # downsampling
         hs = [self.conv_in(x)]
         fea_list = []

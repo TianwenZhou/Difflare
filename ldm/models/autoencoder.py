@@ -595,20 +595,27 @@ class AutoencoderKLResi(pl.LightningModule):
         
         mask = self.RGB2YCbCr(input)
         mask = mask[0][0]
-        mask = self.linear_mask(mask)
-        mask = self.sigmoid_mask(mask)
+        #mask = self.linear_mask(mask)
+        #mask = self.sigmoid_mask(mask)
         device = mask.device
         mask = torch.where(mask >= 0.7, torch.tensor(1).to(device), torch.tensor(0).to(device))
-
+        print(mask.size())
+        #_, mask = self.encode(mask, None)
         posterior, enc_fea_lq = self.encode(input, mask)
         dec = self.decode(latent, enc_fea_lq, mask)
+        mask = mask.float()
         height = mask.shape[0]
         width = mask.shape[1]
-        #mask = mask.view(1, height, width)
-        mask = mask.repeat(1, int(8), int(8))
-            
-        # mask = torch.clamp(mask, min=0, max=1.0)
-        mask = mask.float()
+        mask = mask.reshape(1, height, width)
+        mask = mask.unsqueeze(0)
+        h = 64
+        w = 64
+        mask = F.interpolate(mask, size=(h,w))
+        mask = mask.squeeze(0)
+        height = mask.shape[0]
+        width = mask.shape[1]
+        mask = mask.view(1, h*w, 1)
+        mask = mask.repeat(1, 1, h*w)
         return dec, posterior, mask
 
     @torch.no_grad()
